@@ -2,6 +2,22 @@ open Yojson.Basic.Util;;
 open Option;;
 open List;;
 
+(*
+To be used later
+
+type block =
+| Code
+| Data;;
+
+type instruction_block = {
+  uuid: string;
+  nops: int;
+  ops : string list;
+  sems: string list;
+  type: block;;
+}
+*)
+
 (* Yojson's interpretation of a list is cooked so this terribleness is necessary *)
 let to_r_list jarray =
   let rec jlen j ind =
@@ -27,6 +43,8 @@ let flat ll =
 
 let map_2d f ll = map (map f) ll;;
 
+let need_reverse modul = (member "byteOrder" modul |> to_string) = "LittleEndian";;
+
 (*
 let rec map_n_dim f n nl =
   if n < 2 then map f nl
@@ -47,11 +65,10 @@ let rec instructions r =
 (* Main imperative bit *)
 print_endline "";;
 
-(* Load up the IR and dump out the raw machine codes in b64 *)
+(* Load up the IR and retrieve the raw machine codes in b64 *)
 let gtirb     = try Yojson.Basic.from_file Sys.argv.(1) with Invalid_argument(_) -> exit 1;;
-let modules   = member "modules" gtirb;;
-let mods_rl   = to_r_list modules;;
-let all_sects = map sections mods_rl |> flat;;
+let modules   = member "modules" gtirb |> to_r_list;;
+let all_sects = map sections modules |> flat;;
 let texts     = filter is_text all_sects;;
 let mcodes64  = map machine_codes_b64 texts;;
 
@@ -62,3 +79,6 @@ let opcodes   = map_2d instructions mcs_hex;;
 iter (iter (iter print_endline)) opcodes;;
 
 (* Determine each module's endianness *)
+let reverses  = map need_reverse modules;;
+(*let outs      = map Bool.to_string reverses;;*)
+iter print_endline outs;;
