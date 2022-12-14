@@ -25,9 +25,27 @@ let flat ll =
   | [] -> []
   | h :: t -> h @ (flatten t);;
 
+let map_2d f ll = map (map f) ll;;
+
+(*
+let rec map_n_dim f n nl =
+  if n < 2 then map f nl
+  else map f (map_n_dim f (n - 1) nl);;
+*)
+
 let machine_codes_b64 ts = 
   let byte_ivals = member "byteIntervals" ts |> to_r_list in
   map (member "contents") byte_ivals |> map to_string;;
+
+let b64_to_bin b = Base64.decode_exn b |> Bytes.of_string;;
+
+let rec instructions r =
+  let l = String.length r in
+  if l <= 8 then [r]
+  else instructions (String.sub r 0 8) @ instructions (String.sub r 8 (l - 8));;
+
+(* Main imperative bit *)
+print_endline "";;
 
 (* Load up the IR and dump out the raw machine codes in b64 *)
 let gtirb     = try Yojson.Basic.from_file Sys.argv.(1) with Invalid_argument(_) -> exit 1;;
@@ -36,8 +54,11 @@ let mods_rl   = to_r_list modules;;
 let all_sects = map sections mods_rl |> flat;;
 let texts     = filter is_text all_sects;;
 let mcodes64  = map machine_codes_b64 texts;;
-iter (iter print_endline) (mcodes64);;
 
-(* Turn that into hex *)
+(* Turn that into hex and chop out opcodes*)
+let mcs_bin   = map_2d b64_to_bin mcodes64;;
+let mcs_hex   = map_2d (Hexstring.encode) mcs_bin |> map_2d String.lowercase_ascii;;
+let opcodes   = map_2d instructions mcs_hex;;
+iter (iter (iter print_endline)) opcodes;;
 
 (* Determine each module's endianness *)
