@@ -62,6 +62,19 @@ let rec instructions r =
   if l <= 8 then [r]
   else instructions (String.sub r 0 8) @ instructions (String.sub r 8 (l - 8));;
 
+let rec flips mods reverses =
+  let rec reverse opcode = 
+    let l = String.length opcode in
+    if l < 3 then opcode
+    else (reverse (String.sub opcode 2 (l - 2))) ^ (String.sub opcode 0 2)
+  in match reverses with
+  | []      -> mods
+  | h :: t  -> (match mods with
+                | [] -> []
+                | e :: a -> if h then (map_2d reverse e) :: (flips a t)
+                            else e :: a
+              );;
+
 (* Main imperative bit *)
 print_endline "";;
 
@@ -77,8 +90,11 @@ let mcs_bin   = map_2d b64_to_bin mcodes64;;
 let mcs_hex   = map_2d (Hexstring.encode) mcs_bin |> map_2d String.lowercase_ascii;;
 let opcodes   = map_2d instructions mcs_hex;;
 iter (iter (iter print_endline)) opcodes;;
+print_endline "";;
 
 (* Determine each module's endianness *)
 let reverses  = map need_reverse modules;;
+let end_fixed = flips opcodes reverses;;
+iter (iter (iter print_endline)) end_fixed;;
 (*let outs      = map Bool.to_string reverses;;*)
-iter print_endline outs;;
+(*iter print_endline outs;; *)
