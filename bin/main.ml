@@ -41,11 +41,15 @@ let flat ll =
   | [] -> []
   | h :: t -> h @ (flatten t);;
 
-(* This is dumb. Fix later *)
 let map_2d f ll = map (map f) ll;;
-let map_3d f lll = map (map (map f)) lll;;
 
 let need_reverse modul = (member "byteOrder" modul |> to_string) = "LittleEndian";;
+
+(*
+let rec map_n_dim f n nl =
+  if n < 2 then map f nl
+  else map f (map_n_dim f (n - 1) nl);;
+*)
 
 let machine_codes_b64 ts = 
   let byte_ivals = member "byteIntervals" ts |> to_r_list in
@@ -85,10 +89,12 @@ let mcodes64  = map machine_codes_b64 texts;;
 let mcs_bin   = map_2d b64_to_bin mcodes64;;
 let mcs_hex   = map_2d (Hexstring.encode) mcs_bin |> map_2d String.lowercase_ascii;;
 let opcodes   = map_2d instructions mcs_hex;;
+iter (iter (iter print_endline)) opcodes;;
+print_endline "";;
 
-(* Correct endianness where requried *)
+(* Determine each module's endianness *)
 let reverses  = map need_reverse modules;;
 let end_fixed = flips opcodes reverses;;
 iter (iter (iter print_endline)) end_fixed;;
-
-(* And now, we commit a few programmatic sins *)
+(*let outs      = map Bool.to_string reverses;;*)
+(*iter print_endline outs;; *)
