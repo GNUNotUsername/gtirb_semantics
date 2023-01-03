@@ -43,7 +43,7 @@ let flat ll =
 
 (* This is dumb. Fix later *)
 let map_2d f ll = map (map f) ll;;
-let map_3d f lll = map (map (map f)) lll;;
+(*let map_3d f lll = map (map (map f)) lll;;*)
 
 let need_reverse modul = (member "byteOrder" modul |> to_string) = "LittleEndian";;
 
@@ -71,24 +71,23 @@ let rec flips mods reverses =
                             else e :: a
               );;
 
-(* Main imperative bit *)
-print_endline "";;
+let () = 
 
-(* Load up the IR and retrieve the raw machine codes in b64 *)
-let gtirb     = try Yojson.Basic.from_file Sys.argv.(1) with Invalid_argument(_) -> exit 1;;
-let modules   = member "modules" gtirb |> to_r_list;;
-let all_sects = map sections modules |> flat;;
-let texts     = filter is_text all_sects;;
-let mcodes64  = map machine_codes_b64 texts;;
+  (* Load up the IR and retrieve the raw machine codes in b64 *)
+  let gtirb     = try Yojson.Basic.from_file Sys.argv.(1) with Invalid_argument(_) -> exit 1  in
+  let modules   = member "modules" gtirb |> to_r_list                                         in
+  let all_sects = map sections modules |> flat                                                in
+  let texts     = filter is_text all_sects                                                    in
+  let mcodes64  = map machine_codes_b64 texts                                                 in
 
-(* Turn that into hex and chop out opcodes*)
-let mcs_bin   = map_2d b64_to_bin mcodes64;;
-let mcs_hex   = map_2d (Hexstring.encode) mcs_bin |> map_2d String.lowercase_ascii;;
-let opcodes   = map_2d instructions mcs_hex;;
+  (* Turn that into hex and chop out opcodes*)
+  let mcs_bin   = map_2d b64_to_bin mcodes64                                                  in
+  let mcs_hex   = map_2d (Hexstring.encode) mcs_bin |> map_2d String.lowercase_ascii          in
+  let opcodes   = map_2d instructions mcs_hex                                                 in
 
-(* Correct endianness where requried *)
-let reverses  = map need_reverse modules;;
-let end_fixed = flips opcodes reverses;;
-iter (iter (iter print_endline)) end_fixed;;
+  (* Correct endianness where requried *)
+  let reverses  = map need_reverse modules                                                    in
+  let end_fixed = flips opcodes reverses                                                      in
+  iter (iter (iter print_endline)) end_fixed
 
-(* And now, we commit a few programmatic sins *)
+  (* Give opcodes to ASLi to do all the heavy lifting *)
