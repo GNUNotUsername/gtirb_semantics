@@ -13,15 +13,18 @@ let () =
     res
   in 
   
-  (* Decode the person and Pretty-print it *)
-  let b = Runtime'.Reader.create bytes in
-  let e = Gtirb_semantics.IR.Gtirb.Proto.IR.from_proto b in
-  let r = (match e with
-  | Ok v -> v
-  | Error e -> failwith (Printf.sprintf "Could not reply request: %s" (Ocaml_protoc_plugin.Result.show_error e))) in
+(* Replace with IR.Modules.Sections -> isolate .text -> text.contents *)
+
+  let raw     = Runtime'.Reader.create bytes in
+  let gtirb   = Gtirb_semantics.IR.Gtirb.Proto.IR.from_proto raw in
+  let result  = (match gtirb with
+  | Ok v    -> v
+  | Error e -> failwith (Printf.sprintf "Could not reply request: %s" (Ocaml_protoc_plugin.Result.show_error e)))
+  in
   let rec loop (e :  Gtirb_semantics.CFG.Gtirb.Proto.Edge.t list) = match e with
-  | x::xs -> Printf.printf "%s\n" (Bytes.to_string x.source_uuid) ; loop xs
-  | [] -> () in
-  match r.cfg with
-  | Some c -> loop c.edges
-  | None -> ()
+  | h :: t  -> Printf.printf "%s\n" (Bytes.to_string h.source_uuid) ; loop t
+  | []      -> ()
+  in
+  match result.cfg with
+  | Some graph  -> loop graph.edges
+  | None        -> ()
