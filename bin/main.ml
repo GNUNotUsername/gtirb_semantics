@@ -80,7 +80,7 @@ let () =
   let texts     = filter is_text all_sects                                                    in
   let mcodes64  = map machine_codes_b64 texts                                                 in
 
-  (* Turn that into hex and chop out opcodes*)
+  (* Turn that into hex and chop out opcodes *)
   let mcs_bin   = map_2d b64_to_bin mcodes64                                                  in
   let mcs_hex   = map_2d (Hexstring.encode) mcs_bin |> map_2d String.lowercase_ascii          in
   let opcodes   = map_2d instructions mcs_hex                                                 in
@@ -91,3 +91,4 @@ let () =
   iter (iter (iter print_endline)) end_fixed
 
   (* Give opcodes to ASLi to do all the heavy lifting *)
+  (* Dis.retrieveDisassembly ?address env str *)
