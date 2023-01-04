@@ -1,6 +1,6 @@
-open Yojson.Basic.Util;;
-open Option;;
-open List;;
+open Yojson.Basic.Util
+open Option
+open List
 
 (*
 To be used later
@@ -30,33 +30,33 @@ let to_r_list jarray =
     if ind < max then
       (index ind j) :: aux j (ind + 1) max
     else []
-  in aux jarray 0 (jlen jarray 0);;
+  in aux jarray 0 (jlen jarray 0)
 
-let sections modul = member "sections" modul |> to_r_list;;
-let is_text sect = (member "name" sect |> to_string) = ".text";;
+let sections modul = member "sections" modul |> to_r_list
+let is_text sect = (member "name" sect |> to_string) = ".text"
 (*let text_section sects_rl = filter is_text sects_rl;;*)
 
 let flat ll =
   match ll with
   | [] -> []
-  | h :: t -> h @ (flatten t);;
+  | h :: t -> h @ (flatten t)
 
 (* This is dumb. Fix later *)
-let map_2d f ll = map (map f) ll;;
+let map_2d f ll = map (map f) ll
 (*let map_3d f lll = map (map (map f)) lll;;*)
 
-let need_reverse modul = (member "byteOrder" modul |> to_string) = "LittleEndian";;
+let need_reverse modul = (member "byteOrder" modul |> to_string) = "LittleEndian"
 
 let machine_codes_b64 ts = 
   let byte_ivals = member "byteIntervals" ts |> to_r_list in
-  map (member "contents") byte_ivals |> map to_string;;
+  map (member "contents") byte_ivals |> map to_string
 
-let b64_to_bin b = Base64.decode_exn b |> Bytes.of_string;;
+let b64_to_bin b = Base64.decode_exn b |> Bytes.of_string
 
 let rec instructions r =
   let l = String.length r in
   if l <= 8 then [r]
-  else instructions (String.sub r 0 8) @ instructions (String.sub r 8 (l - 8));;
+  else instructions (String.sub r 0 8) @ instructions (String.sub r 8 (l - 8))
 
 let rec flips mods reverses =
   let rec reverse opcode = 
@@ -69,7 +69,7 @@ let rec flips mods reverses =
                 | [] -> []
                 | e :: a -> if h then (map_2d reverse e) :: (flips a t)
                             else e :: a
-              );;
+              )
 
 let () = 
 
