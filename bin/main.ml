@@ -26,17 +26,10 @@ let () =
     | Ok ir   -> ir.modules
     | Error e -> failwith (Printf.sprintf "Could not reply request: %s" (Ocaml_protoc_plugin.Result.show_error e))
   ) in
-  let sections (modul : Gtirb_semantics.Module.Gtirb.Proto.Module.t) = modul.sections               in
-  let all_sects = map sections result                                                               in
-  let is_text (section : Gtirb_semantics.Section.Gtirb.Proto.Section.t) = section.name = ".text"    in
-  let all_texts = map (filter is_text) all_sects                                                    in
-  let sect_ivals (section : Gtirb_semantics.Section.Gtirb.Proto.Section.t) = section.byte_intervals in
-  let intervals = map (map sect_ivals) all_texts                                                    in (* 2D list of all byte intervals *)
-  (*let int_conts (ival : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) = ival.contents    in
-  let raw_conts = map (map (map int_conts)) intervals                                               in
-  let hex_conts = map (map (map Hexstring.encode)) raw_conts                                        in*)
-  let get_blocks (ival : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) = ival.blocks     in
-  let ival_blks = map (map (map get_blocks)) intervals                                              in
-  let get_offsets (block : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) = block.offset         in          
-  let bsizes    = map (map (map (map get_offsets))) ival_blks                                       in
+  let all_sects = map (fun (m : Gtirb_semantics.Module.Gtirb.Proto.Module.t) -> m.sections) result                          in
+  let all_texts = map (filter (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.name = ".text")) all_sects      in
+  let intervals = map (map (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.byte_intervals)) all_texts         in (* 2D list of all byte intervals *)
+  let ival_blks = map (map (map (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.blocks))) intervals in
+  let get_offsets (block : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) = block.offset                                 in
+  let bsizes    = map (map (map (map get_offsets))) ival_blks                                                               in
   iter (iter (iter (iter (Printf.printf "%d\n")))) bsizes
