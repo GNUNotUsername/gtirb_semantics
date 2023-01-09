@@ -17,6 +17,8 @@ type content_block = {
 
 let () = 
 
+  print_endline "";
+
   let death = "Could not reply request: "     in
   (* Read bytes from the file, skip first 8*) 
   let bytes = 
@@ -42,14 +44,12 @@ let () =
     | Ok ir   -> ir.modules
     | Error e -> failwith (Printf.sprintf "%s%s" death (Ocaml_protoc_plugin.Result.show_error e))
   ) in
-  (* there's gotta be a better way to do this... blame the lack of functional programming experience... *)
   let all_sects = map (fun (m : Gtirb_semantics.Module.Gtirb.Proto.Module.t) -> m.sections) result                      in
   let all_texts = map (filter (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.name = ".text")) all_sects  in
   let intervals = map2 (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.byte_intervals) all_texts          in (* 2D list of all byte intervals *)
-  let contents  = map3 (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.contents) intervals      in
+  (*let contents  = map3 (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.contents) intervals      in*)
   let ival_blks = map3 (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t)
-      -> map (fun b -> {block = b; raw = i.contents}) i.blocks) intervals        in
-  (* There's gotta be a better way of doing this *)
+      -> map (fun b -> {block = b; raw = i.contents}) i.blocks) intervals in
   let rectify   = function
     | `Code (c : Gtirb_semantics.CodeBlock.Gtirb.Proto.CodeBlock.t) -> rblock c.size c.uuid
     | `Data (d : Gtirb_semantics.DataBlock.Gtirb.Proto.DataBlock.t) -> rblock d.size d.uuid
@@ -58,3 +58,5 @@ let () =
   (*let offsets   = map4 (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) -> b.offset) ival_blks in*)
   let poly_blks = map4 (fun b -> {{(rectify b.block.value) with offset = b.block.offset} with contents = b.raw}) ival_blks  in
   let trimmed   = map4 (fun b -> {b with contents = sub b.contents b.offset b.size}) poly_blks                              in
+  let visible   = map4 (fun b -> Hexstring.encode b.contents) trimmed                                                       in
+  iter (iter (iter (iter print_endline))) visible
