@@ -2,9 +2,11 @@ open Ocaml_protoc_plugin.Runtime
 open List
 
 type rectified_block = {
-  uuid    : bytes;
-  size    : int;
-  offset  : int;
+  uuid      : bytes;
+  contents  : bytes;
+  (* Whatever ASLi gives back goes here later*)
+  size      : int;
+  offset    : int;
 }
 
 let () = 
@@ -25,6 +27,8 @@ let () =
   let map3 f l = map (map (map f)) l        in
   let map4 f l = map (map (map (map f))) l  in
 
+  let rblock sz id = {uuid = id; contents = Bytes.empty; size = sz; offset = 0} in
+
   let raw     = Runtime'.Reader.create bytes                      in
   let gtirb   = Gtirb_semantics.IR.Gtirb.Proto.IR.from_proto raw  in
   let result  = (
@@ -38,10 +42,11 @@ let () =
   let intervals = map2 (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.byte_intervals) all_texts          in (* 2D list of all byte intervals *)
   let contents  = map3 (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.contents) intervals      in
   let ival_blks = map3 (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.blocks) intervals        in
+  (* There's gotta be a better way of doing this *)
   let rectify   = function
-    | `Code (c : Gtirb_semantics.CodeBlock.Gtirb.Proto.CodeBlock.t) -> {uuid = c.uuid; size = c.size; offset = 0}
-    | `Data (d : Gtirb_semantics.DataBlock.Gtirb.Proto.DataBlock.t) -> {uuid = d.uuid; size = d.size; offset = 0}
-    | _ -> {uuid = Bytes.empty; size = 0; offset = 0}
+    | `Code (c : Gtirb_semantics.CodeBlock.Gtirb.Proto.CodeBlock.t) -> rblock c.size c.uuid
+    | `Data (d : Gtirb_semantics.DataBlock.Gtirb.Proto.DataBlock.t) -> rblock d.size d.uuid
+    | _ -> rblock 0 Bytes.empty
   in
   (*let offsets   = map4 (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) -> b.offset) ival_blks in*)
   let poly_blks = map4 (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t)
