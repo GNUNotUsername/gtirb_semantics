@@ -35,11 +35,20 @@ let () =
   let intervals = map (map (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.byte_intervals)) all_texts           in (* 2D list of all byte intervals *)
   let contents  = map (map (map (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.contents))) intervals in
   let ival_blks = map (map (map (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t) -> i.blocks))) intervals   in
-  (*let offsets   = map (map (map (map (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) -> b.offset)))) ival_blks    in*)
-  let cd_block  = function
+  let offsets   = map (map (map (map (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) -> b.offset)))) ival_blks    in
+  let poly_blks = map (map (map (map (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t) -> b.value))))  ival_blks    in
+  let rectify   = function
     | `Code (c : Gtirb_semantics.CodeBlock.Gtirb.Proto.CodeBlock.t) -> {uuid = c.uuid; size = c.size; offset = 0}
     | `Data (d : Gtirb_semantics.DataBlock.Gtirb.Proto.DataBlock.t) -> {uuid = d.uuid; size = d.size; offset = 0}
-    | _ -> {uuid = Bytes.empty; size = 0; offset = 0};
+    | _ -> {uuid = Bytes.empty; size = 0; offset = 0}
   in
-  let poly_blks = map (map (map (map (fun (b : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t)
-                  -> {(cd_block b.value) with offset = b.offset})))) ival_blks
+  let r_blocks  = map (map (map (map rectify))) poly_blks in
+  (* This is pain
+  let add_offsets rectified offsets =
+    match rectified with
+    | []      -> []
+    | h::t    -> (match offsets with
+                  | [] -> []
+                  | g :: s -> (record_zip g h) :: )
+    | [h::t]  ->
+    AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA*)
