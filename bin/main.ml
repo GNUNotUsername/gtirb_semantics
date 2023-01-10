@@ -39,7 +39,15 @@ let () =
   let map3 f l = map (map (map f)) l        in
   let map4 f l = map (map (map (map f))) l  in
 
-  let rblock sz id = {uuid = id; contents = empty; opcodes = []; asts = []; address = 0; offset = 0; size = sz; } in
+  let rblock sz id = {
+    uuid      = id;
+    contents  = empty;
+    opcodes   = [];
+    asts      = [];
+    address   = 0;
+    offset    = 0;
+    size      = sz; }
+  in
   
   (* Byte & array manipulation convenience functions *)
   let len         = Bytes.length                                        in
@@ -70,7 +78,7 @@ let () =
   ) in
   let all_sects = map (fun (m : Module.t) -> m.sections) modules                    in
   let all_texts = map (filter (fun (s : Section.t) -> s.name = ".text")) all_sects  in
-  let intervals = map2 (fun (s : Section.t) -> s.byte_intervals) all_texts          in (* 2D list of all byte intervals *)
+  let intervals = map2 (fun (s : Section.t) -> s.byte_intervals) all_texts          in
   let ival_blks = map3 (fun (i : ByteInterval.t)
       -> map (fun b -> {block = b; raw = i.contents; address = i.address}) i.blocks) intervals in
 
@@ -87,6 +95,7 @@ let () =
   
   (* Delete blocks we don't care about; i.e. any not_set's that snuck in or Data blocks *)
   let codes_only  = map3 (filter (fun b -> b.size > 0)) poly_blks in
+  
   (* Section up byte interval contents to their respective blocks and slice out individual opcodes *)
   let trimmed   = map4 (fun b -> {b with contents = Bytes.sub b.contents b.offset b.size}) codes_only in
   let rec cut_ops contents =
@@ -101,7 +110,7 @@ let () =
     if len opcode = 1 then opcode
     else cat (endian_reverse (b_tl opcode 1)) (b_hd opcode 1)                       in
   let flip_opcodes block = {block with opcodes = map endian_reverse block.opcodes}  in
-  (* Bless me father for I have sinned *)
+  (* This could probably be optimised *)
   let rec fix_endianness flips blocks =
     (
       match flips with
@@ -116,9 +125,9 @@ let () =
   let end_fixed = fix_endianness need_flip op_cuts in
 
   (* Organise specs to allow for ASLi evaluation environment setup *)
-  let p       = Sys.argv.(prelude_ind)                                in
+  let prel    = Sys.argv.(prelude_ind)                                in
   let specs   = asbtol Sys.argv specs_start                           in
-  let prelude = LoadASL.read_file p true false                        in
+  let prelude = LoadASL.read_file prel true false                     in
   let mra     = map (fun t -> LoadASL.read_file t false false) specs  in
   let envinfo = concat (prelude :: mra)                               in
 
