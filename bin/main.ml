@@ -25,10 +25,12 @@ type content_block = {
   address : int; 
 }
 
-let opcode_length = 4;;
-let binary_ind    = 1;;
-let prelude_ind   = 2;;
-let specs_start   = 3;;
+let opcode_length = 4
+let binary_ind    = 1
+let prelude_ind   = 2
+let specs_start   = 3
+
+let hex           = "0x"
 
 let () = 
 
@@ -75,7 +77,7 @@ let () =
   (* Resolve polymorphic block variants to isolate info we actually care about *)
   let rectify   = function
     | `Code (c : CodeBlock.t) -> rblock c.size c.uuid
-    | `Data (d : DataBlock.t) -> rblock d.size d.uuid (* Might just delete these? *)
+    | `Data (d : DataBlock.t) -> rblock 0 d.uuid (* Might just delete these? *)
     | _ -> rblock 0 empty
   in
   let poly_blks   = map4 (fun b -> {{{(rectify b.block.value)
@@ -83,8 +85,10 @@ let () =
     with contents = b.raw}
     with address  = b.address + b.block.offset}) ival_blks in
   
+  (* Delete blocks we don't care about; i.e. any not_set's that snuck in or Data blocks *)
+  let codes_only  = map3 (filter (fun b -> b.size > 0)) poly_blks in
   (* Section up byte interval contents to their respective blocks and slice out individual opcodes *)
-  let trimmed   = map4 (fun b -> {b with contents = Bytes.sub b.contents b.offset b.size}) poly_blks in
+  let trimmed   = map4 (fun b -> {b with contents = Bytes.sub b.contents b.offset b.size}) codes_only in
   let rec cut_ops contents =
     if len contents <= opcode_length then [contents]
     else ((b_hd contents opcode_length) :: cut_ops (b_tl contents opcode_length)) in
@@ -119,19 +123,17 @@ let () =
   let envinfo = concat (prelude :: mra)                               in
 
   (* Evaluate each opcode one by one with a new environment for each *)
-  let to_asli op =
-    (*let address = Some addr                                 in *)
+  let to_asli op addr =
+    let address = Some (string_of_int addr)                 in
     let env     = Eval.build_evaluation_environment envinfo in
-    let str     = Hexstring.encode op                       in
-    Dis.retrieveDisassembly env str (* why don't you want the address? *)
+    let str     = hex ^ Hexstring.encode op                 in 
+    let res = Dis.retrieveDisassembly ?address env str      in
+    iter (fun s -> Printf.printf "%s\n" (Asl_utils.pp_stmt s)) res;
+    res
   in
-  let rec asts opcodes addr envinfo = (* addr does nothing rn *)
+  let rec asts opcodes addr envinfo =
     match opcodes with
     | []      -> []
-    | h :: t  -> (to_asli h) :: (asts t (addr + opcode_length) envinfo)
+    | h :: t  -> (to_asli h addr) :: (asts t (addr + opcode_length) envinfo)
   in
-  let with_adts = map4 (fun b -> {b with asts = (asts b.opcodes b.address envinfo)}) end_fixed in
-
-  let chan = open_out_bin "TEST-OUT" in
-  let dump_asts b = iter (iter (fun a -> (Marshal.to_channel chan a []))) b.asts in
-  iter (iter (iter (iter dump_asts))) with_adts
+  let _ = map4 (fun b -> {b with asts = (asts b.opcodes b.address envinfo)}) end_fixed in ()
