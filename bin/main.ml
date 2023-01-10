@@ -1,4 +1,5 @@
 open Ocaml_protoc_plugin.Runtime
+open LibASL
 open Bytes
 open List
 
@@ -6,17 +7,22 @@ type rectified_block = {
   uuid      : bytes;
   contents  : bytes;
   opcodes   : bytes list;
-  (* Whatever ASLi gives back goes here later*)
-  size      : int;
+  asts      : Asl_ast.stmt list list;
+  address   : int;
   offset    : int;
+  size      : int;
 }
 
 type content_block = {
-  block    : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t;
-  raw      : bytes;
+  block   : Gtirb_semantics.ByteInterval.Gtirb.Proto.Block.t;
+  raw     : bytes;
+  address : int; 
 }
 
 let opcode_length = 4;;
+let binary_ind    = 1;;
+let prelude_ind   = 2;;
+let specs_start   = 3;;
 
 let () = 
 
@@ -25,7 +31,7 @@ let () =
   let map3 f l = map (map (map f)) l        in
   let map4 f l = map (map (map (map f))) l  in
 
-  let rblock sz id = {uuid = id; contents = empty; opcodes = []; size = sz; offset = 0} in
+  let rblock sz id = {uuid = id; contents = empty; opcodes = []; asts = []; address = 0; offset = 0; size = sz; } in
   
   (* Byte manipulation convenience functions *)
   let len = Bytes.length in
@@ -37,7 +43,7 @@ let () =
 
   (* Read bytes from the file, skip first 8 *) 
   let bytes = 
-    let ic  = open_in Sys.argv.(1)              in 
+    let ic  = open_in Sys.argv.(binary_ind)     in 
     let len = in_channel_length ic              in
     let _   = really_input_string ic 8          in
     let res = really_input_string ic (len - 8)  in
@@ -57,7 +63,7 @@ let () =
   let all_texts = map (filter (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.name = ".text")) all_sects  in
   let intervals = map2 (fun (s : Gtirb_semantics.Section.Gtirb.Proto.Section.t) -> s.byte_intervals) all_texts          in (* 2D list of all byte intervals *)
   let ival_blks = map3 (fun (i : Gtirb_semantics.ByteInterval.Gtirb.Proto.ByteInterval.t)
-      -> map (fun b -> {block = b; raw = i.contents}) i.blocks) intervals in
+      -> map (fun b -> {block = b; raw = i.contents; address = i.address}) i.blocks) intervals in
 
   (* Resolve polymorphic block variants to isolate info we actually care about *)
   let rectify   = function
@@ -65,7 +71,10 @@ let () =
     | `Data (d : Gtirb_semantics.DataBlock.Gtirb.Proto.DataBlock.t) -> rblock d.size d.uuid (* Might just delete these *)
     | _ -> rblock 0 empty
   in
-  let poly_blks = map4 (fun b -> {{(rectify b.block.value) with offset = b.block.offset} with contents = b.raw}) ival_blks  in
+  let poly_blks   = map4 (fun b -> {{{(rectify b.block.value)
+    with offset   = b.block.offset}
+    with contents = b.raw}
+    with address  = b.address + b.block.offset}) ival_blks in
   
   (* Section up byte interval contents to their respective blocks and slice out individual opcodes *)
   let trimmed   = map4 (fun b -> {b with contents = Bytes.sub b.contents b.offset b.size}) poly_blks                              in
@@ -95,12 +104,28 @@ let () =
   in
   let end_fixed = fix_endianness need_flip op_cuts in
 
+  (* Organise specs to allow for ASLi evaluation environment setup *)
+  let asb a i = Array.to_list (Array.sub a i (Array.length a - i))    in
+  let p       = Sys.argv.(prelude_ind)                                in
+  let specs   = asb Sys.argv specs_start                              in
+  let prelude = LoadASL.read_file p true false                        in
+  let mra     = map (fun t -> LoadASL.read_file t false false) specs  in
+  let envinfo = concat (prelude :: mra)                               in
 
-  (* Testing *)
-  let rec pp_ops ops = 
-  match ops with
-  | [] -> print_endline ""
-  | h::t -> (print_endline (Hexstring.encode h); pp_ops t); in
-  let dump_ops b = pp_ops b.opcodes in
+  (* Evaluate each opcode one by one with a new environment for each *)
+  let to_asli op =
+    (*let address = Some addr                                 in *)
+    let env     = Eval.build_evaluation_environment envinfo in
+    let str     = Hexstring.encode op                       in
+    Dis.retrieveDisassembly env str (* why don't you want the address? *)
+  in
+  let rec asts opcodes addr envinfo = (* addr does nothing rn *)
+    match opcodes with
+    | []      -> []
+    | h :: t  -> (to_asli h) :: (asts t (addr + opcode_length) envinfo)
+  in
+  let with_adts = map4 (fun b -> {b with asts = (asts b.opcodes b.address envinfo)}) end_fixed in
 
-  iter (iter (iter (iter dump_ops))) end_fixed
+  let chan = open_out_bin "TEST-OUT" in
+  let dump_asts b = iter (iter (fun a -> (Marshal.to_channel chan a []))) b.asts in
+  iter (iter (iter (iter dump_asts))) with_adts
