@@ -4,20 +4,31 @@ open Gtirb_semantics.ByteInterval.Gtirb.Proto
 open Gtirb_semantics.Module.Gtirb.Proto
 open Gtirb_semantics.Section.Gtirb.Proto
 open Gtirb_semantics.CodeBlock.Gtirb.Proto
-open Gtirb_semantics.DataBlock.Gtirb.Proto
+(*open Gtirb_semantics.DataBlock.Gtirb.Proto*)
 open LibASL
 open Bytes
 open List
 
 type rectified_block = {
-  uuid      : bytes;
+  ruuid      : bytes;
   contents  : bytes;
   opcodes   : bytes list;
-  asts      : Asl_ast.stmt list list;
   address   : int;
   offset    : int;
   size      : int;
 }
+
+type ast_block = {
+  auuid   : bytes;
+  asts    : string list list;
+  concat  : string;
+}
+
+(*
+type serialisable = {
+  suuid : bytes;
+  sasts : bytes list list;
+}*)
 
 type content_block = {
   block   : Block.t;
@@ -31,6 +42,12 @@ let prelude_ind   = 2
 let specs_start   = 3
 
 let hex           = "0x"
+let l_op          = "[\""
+let l_dl          = "\",\""
+let l_cl          = "\"]"
+let ll_op         = "["
+let ll_dl         = ","
+let ll_cl         = "]"
 
 let () = 
 
@@ -40,10 +57,9 @@ let () =
   let map4 f l = map (map (map (map f))) l  in
 
   let rblock sz id = {
-    uuid      = id;
+    ruuid     = id;
     contents  = empty;
     opcodes   = [];
-    asts      = [];
     address   = 0;
     offset    = 0;
     size      = sz; }
@@ -85,7 +101,6 @@ let () =
   (* Resolve polymorphic block variants to isolate info we actually care about *)
   let rectify   = function
     | `Code (c : CodeBlock.t) -> rblock c.size c.uuid
-    | `Data (d : DataBlock.t) -> rblock 0 d.uuid (* Might just delete these? *)
     | _ -> rblock 0 empty
   in
   let poly_blks   = map4 (fun b -> {{{(rectify b.block.value)
@@ -93,7 +108,7 @@ let () =
     with contents = b.raw}
     with address  = b.address + b.block.offset}) ival_blks in
   
-  (* Delete blocks we don't care about; i.e. any not_set's that snuck in or Data blocks *)
+  (* only want code blocks *)
   let codes_only  = map3 (filter (fun b -> b.size > 0)) poly_blks in
   
   (* Section up byte interval contents to their respective blocks and slice out individual opcodes *)
@@ -104,6 +119,7 @@ let () =
   let op_cuts   = map4 (fun b -> {b with opcodes = cut_ops b.contents}) trimmed   in
 
   (* Convert every opcode to big endianness *)
+  (* EVERYTHING GOT REVERSED HERE SOMEHOW WHOOPS *)
   let need_flip = map (fun (m : Module.t)
       -> m.byte_order = ByteOrder.LittleEndian) modules in
   let rec endian_reverse opcode = 
@@ -136,13 +152,20 @@ let () =
     let address = Some (string_of_int addr)                 in
     let env     = Eval.build_evaluation_environment envinfo in
     let str     = hex ^ Hexstring.encode op                 in 
-    let res = Dis.retrieveDisassembly ?address env str      in
-    iter (fun s -> Printf.printf "%s\n" (Asl_utils.pp_stmt s)) res;
-    res
+    let res     = Dis.retrieveDisassembly ?address env str  in
+    print_endline str; map Asl_utils.pp_stmt res
   in
   let rec asts opcodes addr envinfo =
     match opcodes with
     | []      -> []
     | h :: t  -> (to_asli h addr) :: (asts t (addr + opcode_length) envinfo)
   in
-  let _ = map4 (fun b -> {b with asts = (asts b.opcodes b.address envinfo)}) end_fixed in ()
+  let with_asts = map4 (fun b
+      -> print_endline ""; {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) end_fixed in
+
+  (* Now massage asli outputs into a format which can be serialised and then deserialised by other tools *)
+  let l_to_s op d cl l = op ^ (String.concat d l) ^ cl                            in
+  let jsoned asts = map (l_to_s l_op l_dl l_cl) asts |> l_to_s ll_op ll_dl ll_cl  in
+  let json_asts   = map4 (fun b -> {b with concat = jsoned b.asts}) with_asts     in
+
+  iter (iter (iter (iter (fun b -> print_endline b.concat)))) json_asts
