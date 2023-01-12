@@ -119,7 +119,6 @@ let () =
   let op_cuts   = map4 (fun b -> {b with opcodes = cut_ops b.contents}) trimmed   in
 
   (* Convert every opcode to big endianness *)
-  (* EVERYTHING GOT REVERSED HERE SOMEHOW WHOOPS *)
   let need_flip = map (fun (m : Module.t)
       -> m.byte_order = ByteOrder.LittleEndian) modules in
   let rec endian_reverse opcode = 
@@ -127,18 +126,20 @@ let () =
     else cat (endian_reverse (b_tl opcode 1)) (b_hd opcode 1)                       in
   let flip_opcodes block = {block with opcodes = map endian_reverse block.opcodes}  in
   (* This could probably be optimised *)
-  let rec fix_endianness flips blocks =
+  let rec fix_endianness flips blocks f =
     (
       match flips with
       | []      -> []
-      | h :: _  -> (if h then map3 flip_opcodes (hd blocks) else (hd blocks))
+      | h :: _  -> (if h then map3 f (hd blocks) else (hd blocks))
     ) :: (
       match flips with
       | []      -> []
-      | _ :: t  -> fix_endianness t (tl blocks)
+      | _ :: t  -> fix_endianness t (tl blocks) f
     )
   in
-  let end_fixed = fix_endianness need_flip op_cuts in
+  (* REVIEW THIS *)
+  let end_fixed = fix_endianness need_flip op_cuts flip_opcodes                                   in
+  let blk_orded = fix_endianness need_flip end_fixed (fun b -> {b with opcodes = rev b.opcodes})  in
 
   (* Organise specs to allow for ASLi evaluation environment setup *)
   let prel    = Sys.argv.(prelude_ind)                                in
@@ -161,7 +162,7 @@ let () =
     | h :: t  -> (to_asli h addr) :: (asts t (addr + opcode_length) envinfo)
   in
   let with_asts = map4 (fun b
-      -> print_endline ""; {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) end_fixed in
+      -> print_endline ""; {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) blk_orded in
 
   (* Now massage asli outputs into a format which can be serialised and then deserialised by other tools *)
   let l_to_s op d cl l = op ^ (String.concat d l) ^ cl                            in
