@@ -42,12 +42,18 @@ let prelude_ind   = 2
 let specs_start   = 3
 
 let hex           = "0x"
-let l_op          = "[\""
-let l_dl          = "\",\""
-let l_cl          = "\"]"
+let l_op          = "["
+let l_dl          = ","
+let l_cl          = "]"
+let newline       = "\n"
+let space         = " "
+let strung        ="\""
+(*
 let ll_op         = "["
 let ll_dl         = ","
 let ll_cl         = "]"
+let ast_op        = "{"
+let ast_cl        = "}"*)
 
 let () = 
 
@@ -72,8 +78,6 @@ let () =
   let asbtol a i  = Array.to_list (Array.sub a i (Array.length a - i))  in 
 
   (* Main *)
-  print_endline "";
-
   (* Read bytes from the file, skip first 8 *) 
   let bytes = 
     let ic  = open_in Sys.argv.(binary_ind)     in 
@@ -137,7 +141,6 @@ let () =
       | _ :: t  -> fix_endianness t (tl blocks) f
     )
   in
-  (* REVIEW THIS *)
   let end_fixed = fix_endianness need_flip op_cuts flip_opcodes                                   in
   let blk_orded = fix_endianness need_flip end_fixed (fun b -> {b with opcodes = rev b.opcodes})  in
 
@@ -154,19 +157,34 @@ let () =
     let env     = Eval.build_evaluation_environment envinfo in
     let str     = hex ^ Hexstring.encode op                 in 
     let res     = Dis.retrieveDisassembly ?address env str  in
-    print_endline str; map Asl_utils.pp_stmt res
+    let ascii   = map Asl_utils.pp_stmt res                 in
+    let rec no_newlines ascii =
+      if String.length ascii = 1
+      then ascii
+      else (
+        let s_hd s  = String.sub s 0 1                      in
+        let s_tl s  = String.sub s 1 (String.length s - 1)  in
+        let top     = s_hd ascii                            in
+        let tail    = s_tl ascii                            in
+        if top = newline
+        then space ^ no_newlines tail
+        else top ^ no_newlines tail
+      )
+    in
+    let trimmed = map String.trim ascii                     in
+    let joined  = map no_newlines trimmed                   in
+    map (fun s -> strung ^ s ^ strung) joined
   in
   let rec asts opcodes addr envinfo =
     match opcodes with
     | []      -> []
     | h :: t  -> (to_asli h addr) :: (asts t (addr + opcode_length) envinfo)
   in
-  let with_asts = map4 (fun b
-      -> print_endline ""; {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) blk_orded in
+  let with_asts = map4 (fun b -> {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) blk_orded in
 
   (* Now massage asli outputs into a format which can be serialised and then deserialised by other tools *)
-  let l_to_s op d cl l = op ^ (String.concat d l) ^ cl                            in
-  let jsoned asts = map (l_to_s l_op l_dl l_cl) asts |> l_to_s ll_op ll_dl ll_cl  in
-  let json_asts   = map4 (fun b -> {b with concat = jsoned b.asts}) with_asts     in
+  let l_to_s op d cl l = op ^ (String.concat d l) ^ cl                        in
+  let jsoned asts = map (l_to_s l_op l_dl l_cl) asts |> l_to_s l_op l_dl l_cl in
+  let json_asts   = map4 (fun b -> {b with concat = jsoned b.asts}) with_asts in
 
   iter (iter (iter (iter (fun b -> print_endline b.concat)))) json_asts
