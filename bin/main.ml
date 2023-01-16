@@ -55,12 +55,8 @@ let () =
 
   (* List manipulation convenience *)
   let map2 f l        = map (map f) l in
-  let rec flatten ll  =
-    match ll with
-    | []      -> []
-    | h :: t  -> h @ flatten t
-  in
 
+  (* Record convenience *)
   let rblock sz id = {
     ruuid     = id;
     contents  = empty;
@@ -135,20 +131,13 @@ let () =
       if len opcode = 1 then opcode
       else cat (endian_reverse (b_tl opcode 1)) (b_hd opcode 1)                       in
     let flip_opcodes block = {block with opcodes = map endian_reverse block.opcodes}  in
-    (* This could probably be optimised *)
-    let rec fix_endianness flips blocks f =
-      (
-        match flips with
-        | []      -> []
-        | h :: _  -> (if h then map f (hd blocks) else (hd blocks))
-      ) :: (
-        match flips with
-        | []      -> []
-        | _ :: t  -> fix_endianness t (tl blocks) f
-      )
+    let pairs = combine need_flip op_cuts in
+    let fix_mod p =
+      match p with
+      | (true, o)   -> map flip_opcodes o
+      | (false, o)  -> o
     in
-    let end_fixed = fix_endianness need_flip op_cuts flip_opcodes in
-    fix_endianness need_flip end_fixed (fun b -> {b with opcodes = rev b.opcodes})
+    map fix_mod pairs
   in
 
   (* Organise specs to allow for ASLi evaluation environment setup *)
