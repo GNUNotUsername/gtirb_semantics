@@ -4,7 +4,6 @@ open Gtirb_semantics.ByteInterval.Gtirb.Proto
 open Gtirb_semantics.Module.Gtirb.Proto
 open Gtirb_semantics.Section.Gtirb.Proto
 open Gtirb_semantics.CodeBlock.Gtirb.Proto
-(*open Gtirb_semantics.DataBlock.Gtirb.Proto*)
 open LibASL
 open Bytes
 open List
@@ -114,9 +113,8 @@ let () =
   let poly_blks   = map2 (fun b -> {{{(rectify b.block.value)
     with offset   = b.block.offset}
     with contents = b.raw}
-    with address  = b.address + b.block.offset}) ival_blks in
-  
-  (* only want code blocks *)
+    with address  = b.address + b.block.offset}) ival_blks
+  in
   let codes_only  = map (filter (fun b -> b.size > 0)) poly_blks in
   
   (* Section up byte interval contents to their respective blocks and slice out individual opcodes *)
@@ -157,26 +155,15 @@ let () =
 
   (* Evaluate each opcode one by one with a new environment for each *)
   let to_asli op addr =
-    let address = Some (string_of_int addr)                 in
-    let env     = Eval.build_evaluation_environment envinfo in
-    let str     = hex ^ Hexstring.encode op                 in 
-    let res     = Dis.retrieveDisassembly ?address env str  in
-    let ascii   = map Asl_utils.pp_stmt res                 in
-    let rec no_newlines ascii =
-      if String.length ascii = 1
-      then ascii
-      else (
-        let s_hd s  = String.sub s 0 1                      in
-        let s_tl s  = String.sub s 1 (String.length s - 1)  in
-        let top     = s_hd ascii                            in
-        let tail    = s_tl ascii                            in
-        if top = newline
-        then space ^ no_newlines tail
-        else top ^ no_newlines tail
-      )
-    in
-    let trimmed = map String.trim ascii                     in
-    let joined  = map no_newlines trimmed                   in
+    let address = Some (string_of_int addr)                                     in
+    let env     = Eval.build_evaluation_environment envinfo                     in
+    let str     = hex ^ Hexstring.encode op                                     in 
+    let res     = Dis.retrieveDisassembly ?address env str                      in
+    let ascii   = map Asl_utils.pp_stmt res                                     in
+    let indiv s = init (String.length s) (String.get s) |> map (String.make 1)  in
+    let no_nl s = map (fun l -> if l = newline then space else l) s             in
+    let trimmed = map String.trim ascii                                         in
+    let joined  = map indiv trimmed |> map no_nl |> map (String.concat "")      in
     map (fun s -> strung ^ s ^ strung) joined
   in
   let rec asts opcodes addr envinfo =
