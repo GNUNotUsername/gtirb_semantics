@@ -50,16 +50,10 @@ let kv_pair       = ":"
 let j_op          = "{"
 let j_cl          = "}"
 
-(*
-TODOS
-
-* Condense the asli outputs
-*)
-
 let () = 
 
   (* List manipulation convenience *)
-  let map2 f l        = map (map f) l in
+  let map2 f l = map (map f) l in
 
   (* Record convenience *)
   let rblock sz id = {
@@ -95,7 +89,7 @@ let () =
   in
   let ir =
     match gtirb with
-    | Ok a  -> a
+    | Ok a    -> a
     | Error e -> failwith (Printf.sprintf "%s%s" "Could not reply request: " (Ocaml_protoc_plugin.Result.show_error e))
   in
   let modules = ir.modules in
@@ -189,32 +183,23 @@ let () =
 
   (* Finally, sandwich ASTs into the IR amongst the other auxdata *)
   let encoded   =
-    let orig_auxes  = map (fun (m : Module.t) -> m.aux_data) modules in
+    let orig_auxes  = map (fun (m : Module.t) -> m.aux_data) modules            in
     let ast_aux j   = ({type_name = ast; data = Bytes.of_string j} : AuxData.t) in
-    let new_auxes   = map ast_aux serialisable |> map (fun a -> (ast, a)) in
-    let aux_joins   = combine orig_auxes new_auxes in
-    let app p =
-      match p with
-      | (l : (string * AuxData.t option) list), (m, b) -> (m, Option.some b) :: l
-    in
-    let full_auxes  = map app aux_joins in
-    let mod_joins   = combine modules full_auxes in
-    let replace_aux r =
-      match r with
-      | ((m : Module.t), l) -> 
-        (match l with
-        | []      -> m
-        | h :: t  -> {m with aux_data = (h :: t)}
-        )
-    in
-    let mod_fixed = map replace_aux mod_joins     in
+    let new_auxes   = map ast_aux serialisable |> map (fun a -> (ast, a))       in
+    let aux_joins   = combine orig_auxes new_auxes                              in
+    let full_auxes  = map (fun ((l : (string * AuxData.t option) list), (m, b))
+        -> (m, Option.some b) :: l) aux_joins     in
+    let mod_joins   = combine modules full_auxes  in
+    let mod_fixed   = map (fun ((m : Module.t), a)
+        -> {m with aux_data = a}) mod_joins       in
     let out_gtirb = {ir with modules = mod_fixed} in
     let serial    = IR.to_proto out_gtirb         in
   Runtime'.Writer.contents serial
   in
 
   (* And reserialise to disk *)
-  let out       = open_out_bin Sys.argv.(out_ind)
-  in
-  Printf.fprintf out "%s" encoded;
-  close_out out;
+  let out = open_out_bin Sys.argv.(out_ind) in
+  (
+    Printf.fprintf out "%s" encoded;
+    close_out out;
+  )
