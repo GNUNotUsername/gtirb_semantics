@@ -10,7 +10,7 @@ open Bytes
 open List
 
 type rectified_block = {
-  ruuid      : bytes;
+  ruuid     : bytes;
   contents  : bytes;
   opcodes   : bytes list;
   address   : int;
@@ -24,12 +24,6 @@ type ast_block = {
   concat  : string;
 }
 
-(*
-type serialisable = {
-  suuid : bytes;
-  sasts : bytes list list;
-}*)
-
 type content_block = {
   block   : Block.t;
   raw     : bytes;
@@ -40,6 +34,7 @@ let opcode_length = 4
 let binary_ind    = 1
 let prelude_ind   = 2
 let specs_start   = 3
+let noplen        = 4
 
 let hex           = "0x"
 let l_op          = "["
@@ -47,13 +42,16 @@ let l_dl          = ","
 let l_cl          = "]"
 let newline       = "\n"
 let space         = " "
-let strung        ="\""
+let strung        = "\""
+let kv_pair       = ":"
+
 (*
-let ll_op         = "["
-let ll_dl         = ","
-let ll_cl         = "]"
-let ast_op        = "{"
-let ast_cl        = "}"*)
+TODOS
+
+* Fix the n dimensional map thing ==> or just flatten the lists? UUIDs should take care of everything
+* Clean up the hd/tl variants thrown about everywhere
+* Condense the asli outputs
+*)
 
 let () = 
 
@@ -105,7 +103,7 @@ let () =
   (* Resolve polymorphic block variants to isolate info we actually care about *)
   let rectify   = function
     | `Code (c : CodeBlock.t) -> rblock c.size c.uuid
-    | _ -> rblock 0 empty
+    | _                       -> rblock 0 empty
   in
   let poly_blks   = map4 (fun b -> {{{(rectify b.block.value)
     with offset   = b.block.offset}
@@ -146,7 +144,12 @@ let () =
 
   (* Organise specs to allow for ASLi evaluation environment setup *)
   let prel    = Sys.argv.(prelude_ind)                                in
-  let specs   = asbtol Sys.argv specs_start                           in
+  let specs   = asbtol Sys.argv specs_start         
+  (*
+  type serialisable = {
+    suuid : bytes;
+    sasts : bytes list list;
+  }*)                  in
   let prelude = LoadASL.read_file prel true false                     in
   let mra     = map (fun t -> LoadASL.read_file t false false) specs  in
   let envinfo = concat (prelude :: mra)                               in
@@ -187,4 +190,7 @@ let () =
   let jsoned asts = map (l_to_s l_op l_dl l_cl) asts |> l_to_s l_op l_dl l_cl in
   let json_asts   = map4 (fun b -> {b with concat = jsoned b.asts}) with_asts in
 
-  iter (iter (iter (iter (fun b -> print_endline b.concat)))) json_asts
+  (* Pair everything up with code block uuids *)
+  let no_nops   = map3 (filter (fun b -> String.length b.concat > noplen)) json_asts    in (* Comparing to [[]] not working? *)
+  let paired  = map4 (fun b -> (Hexstring.encode b.auuid) ^ kv_pair ^ b.concat) no_nops in
+  iter (iter (iter (iter print_endline))) paired
