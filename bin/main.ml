@@ -4,6 +4,7 @@ open Gtirb_semantics.ByteInterval.Gtirb.Proto
 open Gtirb_semantics.Module.Gtirb.Proto
 open Gtirb_semantics.Section.Gtirb.Proto
 open Gtirb_semantics.CodeBlock.Gtirb.Proto
+open Gtirb_semantics.AuxData.Gtirb.Proto
 open LibASL
 open Bytes
 open List
@@ -29,12 +30,14 @@ type content_block = {
   address : int; 
 }
 
-let opcode_length = 4
 let binary_ind    = 1
-let prelude_ind   = 2
-let specs_start   = 3
+let out_ind       = 2
+let prelude_ind   = 3
+let specs_start   = 4
 let noplen        = 4
+let opcode_length = 4
 
+let ast           = "ast"
 let text          = ".text"
 let hex           = "0x"
 let l_op          = "["
@@ -44,6 +47,8 @@ let newline       = "\n"
 let space         = " "
 let strung        = "\""
 let kv_pair       = ":"
+let j_op          = "{"
+let j_cl          = "}"
 
 (*
 TODOS
@@ -84,13 +89,16 @@ let () =
   in
 
   (* Pull out interesting code bits *)
-  let modules =
-    let raw     = Runtime'.Reader.create bytes  in
-    let gtirb   = IR.from_proto raw             in
-      match gtirb with
-      | Ok ir   -> ir.modules
-      | Error e -> failwith (Printf.sprintf "%s%s" "Could not reply request: " (Ocaml_protoc_plugin.Result.show_error e))
+  let gtirb = 
+    let raw = Runtime'.Reader.create bytes in
+    IR.from_proto raw
   in
+  let ir =
+    match gtirb with
+    | Ok a  -> a
+    | Error e -> failwith (Printf.sprintf "%s%s" "Could not reply request: " (Ocaml_protoc_plugin.Result.show_error e))
+  in
+  let modules = ir.modules in
   let ival_blks =
     let all_sects = map (fun (m : Module.t) -> m.sections) modules                          in
     let all_texts = map (filter (fun (s : Section.t) -> s.name = text)) all_sects           in
@@ -134,7 +142,7 @@ let () =
     let pairs = combine need_flip op_cuts in
     let fix_mod p =
       match p with
-      | (true, o)   -> map flip_opcodes o
+      | (true,  o)  -> map flip_opcodes o
       | (false, o)  -> o
     in
     map fix_mod pairs
@@ -170,13 +178,37 @@ let () =
   let with_asts = map2 (fun b -> {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) blk_orded in
 
   (* Now massage asli outputs into a format which can be serialised and then deserialised by other tools *)
-  let json_asts   =
-    let l_to_s op d cl l = op ^ (String.concat d l) ^ cl                        in
-    let jsoned asts = map (l_to_s l_op l_dl l_cl) asts |> l_to_s l_op l_dl l_cl in
-    map2 (fun b -> {b with concat = jsoned b.asts}) with_asts
+  let serialisable =
+    let l_to_s op d cl l  = op ^ (String.concat d l) ^ cl                                   in
+    let jsoned asts       = map (l_to_s l_op l_dl l_cl) asts |> l_to_s l_op l_dl l_cl       in
+    let json_asts = map2 (fun b -> {b with concat = jsoned b.asts}) with_asts               in
+    let no_nops   = map (filter (fun b -> String.length b.concat > noplen)) json_asts       in  (* Comparing to [[]] not working?               *)
+    let paired    = map2 (fun b -> (Hexstring.encode b.auuid) ^ kv_pair ^ b.concat) no_nops in  (* Ideally this should be base64 instad of hex  *)
+    map (l_to_s j_op l_dl j_cl) paired
   in
 
-  (* Pair everything up with code block uuids *)
-  let no_nops = map (filter (fun b -> String.length b.concat > noplen)) json_asts       in (* Comparing to [[]] not working? *)
-  let paired  = map2 (fun b -> (Hexstring.encode b.auuid) ^ kv_pair ^ b.concat) no_nops in
-  iter (iter print_endline) paired
+  let orig_auxes  = map (fun (m : Module.t) -> m.aux_data) modules in
+  let ast_aux j   = ({type_name = ast; data = Bytes.of_string j} : AuxData.t) in
+  let new_auxes   = map ast_aux serialisable |> map (fun a -> (ast, a)) in
+  let aux_joins   = combine orig_auxes new_auxes in
+  let app p =
+    match p with
+    | (l : (string * AuxData.t option) list), (m, b) -> (m, Option.some b) :: l
+  in
+  let full_auxes  = map app aux_joins in
+  let mod_joins   = combine modules full_auxes in
+  let replace_aux r =
+    match r with
+    | ((m : Module.t), l) -> 
+      (match l with
+      | []      -> m
+      | h :: t  -> {m with aux_data = (h :: t)}
+      )
+  in
+  let mod_fixed = map replace_aux mod_joins     in
+  let out_gtirb = {ir with modules = mod_fixed} in
+  let serial    = IR.to_proto out_gtirb         in
+  let encoded   = Runtime'.Writer.contents serial in
+  let out       = open_out_bin Sys.argv.(out_ind) in
+  Printf.fprintf out "%s" encoded;
+  close_out out;
