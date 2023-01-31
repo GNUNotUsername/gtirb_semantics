@@ -25,4 +25,7 @@ setup.log
 *swp
 
 pjson
+_pjson
 OUT
+__pycache__/
+scripts/temp/

@@ -31,10 +31,10 @@ type content_block = {
 }
 
 let binary_ind    = 1
-let out_ind       = 2
-let prelude_ind   = 3
-let specs_start   = 4
-let noplen        = 4
+let prelude_ind   = 2
+let mra_ind       = 3
+let asli_ind      = 4
+let out_ind       = 5
 let opcode_length = 4
 
 let ast           = "ast"
@@ -43,12 +43,17 @@ let hex           = "0x"
 let l_op          = "["
 let l_dl          = ","
 let l_cl          = "]"
-let newline       = "\n"
-let space         = " "
 let strung        = "\""
 let kv_pair       = ":"
 let j_op          = "{"
 let j_cl          = "}"
+let arch          = "regs-arch-arch_instrs-arch_decode"
+let support       = "aes-barriers-debug-feature-hints-interrupts-memory-stubs-fetchdecode"
+let test          = "override-test"
+let types         = "types"
+let spec_d        = '-'
+let path_d        = "/"
+let asl           = ".asl"
 
 let () = 
 
@@ -66,10 +71,9 @@ let () =
   } in
   
   (* Byte & array manipulation convenience functions *)
-  let len         = Bytes.length                                        in
-  let b_tl op n   = Bytes.sub op n (len op - n)                         in
-  let b_hd op n   = Bytes.sub op 0 n                                    in
-  let asbtol a i  = Array.to_list (Array.sub a i (Array.length a - i))  in 
+  let len         = Bytes.length                in
+  let b_tl op n   = Bytes.sub op n (len op - n) in
+  let b_hd op n   = Bytes.sub op 0 n            in
 
   (* Main *)
   (* Read bytes from the file, skip first 8 *) 
@@ -90,12 +94,15 @@ let () =
   let ir =
     match gtirb with
     | Ok a    -> a
-    | Error e -> failwith (Printf.sprintf "%s%s" "Could not reply request: " (Ocaml_protoc_plugin.Result.show_error e))
+    | Error e -> failwith (
+        Printf.sprintf "%s%s" "Could not reply request: " (Ocaml_protoc_plugin.Result.show_error e)
+      )
   in
-  let modules = ir.modules in
-  let ival_blks =
+  let modules     = ir.modules                in
+  let is_text (s : Section.t) = s.name = text in
+  let ival_blks   =
     let all_sects = map (fun (m : Module.t) -> m.sections) modules                          in
-    let all_texts = map (filter (fun (s : Section.t) -> s.name = text)) all_sects           in
+    let all_texts = map (filter is_text) all_sects                                          in
     let intervals = map2 (fun (s : Section.t) -> s.byte_intervals) all_texts |> map flatten in
     map2 (fun (i : ByteInterval.t)
       -> map (fun b -> {block = b; raw = i.contents; address = i.address}) i.blocks) intervals
@@ -115,9 +122,10 @@ let () =
     in 
     map (filter (fun b -> b.size > 0)) poly_blks in
   
-  (* Section up byte interval contents to their respective blocks and slice out individual opcodes *)
+  (* Section up byte interval contents to their respective blocks and take individual opcodes *)
   let op_cuts   =
-    let trimmed = map2 (fun b -> {b with contents = Bytes.sub b.contents b.offset b.size}) codes_only in
+    let trimmed = map2 (fun b -> 
+        {b with contents = Bytes.sub b.contents b.offset b.size}) codes_only in
     let rec cut_ops contents =
       if len contents <= opcode_length then [contents]
       else ((b_hd contents opcode_length) :: cut_ops (b_tl contents opcode_length))
@@ -130,7 +138,8 @@ let () =
     let need_flip = map (fun (m : Module.t)
         -> m.byte_order = ByteOrder.LittleEndian) modules in
     let rec endian_reverse opcode = 
-      if len opcode = 1 then opcode
+      if len opcode = 1
+      then opcode
       else cat (endian_reverse (b_tl opcode 1)) (b_hd opcode 1)                       in
     let flip_opcodes block = {block with opcodes = map endian_reverse block.opcodes}  in
     let pairs = combine need_flip op_cuts in
@@ -144,24 +153,31 @@ let () =
 
   (* Organise specs to allow for ASLi evaluation environment setup *)
   let envinfo =
-    let prel    = Sys.argv.(prelude_ind)                                in
-    let specs   = asbtol Sys.argv specs_start                           in
-    let prelude = LoadASL.read_file prel true false                     in
-    let mra     = map (fun t -> LoadASL.read_file t false false) specs  in
+    let spc_dir = Sys.argv.(mra_ind)                                        in
+    let take_paths p sdir fs = String.split_on_char spec_d fs |> 
+        map (fun f -> p ^ path_d ^ sdir ^ path_d ^ f ^ asl)                 in
+    let add_types l = (hd l) :: (spc_dir ^ path_d ^ types ^ asl) :: (tl l)  in
+    let arches  = take_paths spc_dir "arch" arch                            in
+    let support = take_paths spc_dir "support" support                      in
+    let tests   = take_paths Sys.argv.(asli_ind) "tests" test               in
+    let prel    = Sys.argv.(prelude_ind)                                    in
+    let w_types = add_types arches                                          in
+    let specs   = w_types @ support @ tests                                 in
+    let prelude = LoadASL.read_file prel true false                         in
+    let mra     = map (fun t -> LoadASL.read_file t false false) specs      in
     concat (prelude :: mra)
   in
 
   (* Evaluate each opcode one by one with a new environment for each *)
   let to_asli op addr =
+    let p_raw a = Utils.to_string (Asl_parser_pp.pp_raw_stmt a) |> String.trim  in
     let address = Some (string_of_int addr)                                     in
     let env     = Eval.build_evaluation_environment envinfo                     in
     let str     = hex ^ Hexstring.encode op                                     in 
     let res     = Dis.retrieveDisassembly ?address env str                      in
-    let ascii   = map Asl_utils.pp_stmt res                                     in
+    let ascii   = map p_raw res                                                 in
     let indiv s = init (String.length s) (String.get s) |> map (String.make 1)  in
-    let no_nl s = map (fun l -> if l = newline then space else l) s             in
-    let trimmed = map String.trim ascii                                         in
-    let joined  = map indiv trimmed |> map no_nl |> map (String.concat "")      in
+    let joined  = map indiv ascii |>  map (String.concat "")                    in
     map (fun s -> strung ^ s ^ strung) joined
   in
   let rec asts opcodes addr envinfo =
@@ -169,32 +185,45 @@ let () =
     | []      -> []
     | h :: t  -> (to_asli h addr) :: (asts t (addr + opcode_length) envinfo)
   in
-  let with_asts = map2 (fun b -> {auuid = b.ruuid; asts = (asts b.opcodes b.address envinfo); concat = ""}) blk_orded in
+  let with_asts = map2 (fun b 
+    -> {
+      auuid   = b.ruuid;
+      asts    = (asts b.opcodes b.address envinfo);
+      concat  = ""
+    }) blk_orded
+  in
 
-  (* Now massage asli outputs into a format which can be serialised and then deserialised by other tools *)
+  (* Now massage asli outputs into a format which can
+     be serialised and then deserialised by other tools *)
   let serialisable =
-    let l_to_s op d cl l  = op ^ (String.concat d l) ^ cl                                   in
-    let jsoned asts       = map (l_to_s l_op l_dl l_cl) asts |> l_to_s l_op l_dl l_cl       in
-    let json_asts = map2 (fun b -> {b with concat = jsoned b.asts}) with_asts               in
-    let no_nops   = map (filter (fun b -> String.length b.concat > noplen)) json_asts       in  (* Comparing to [[]] not working?               *)
-    let paired    = map2 (fun b -> (Hexstring.encode b.auuid) ^ kv_pair ^ b.concat) no_nops in  (* Ideally this should be base64 instad of hex  *)
+    let l_to_s op d cl l  = op ^ (String.concat d l) ^ cl                             in
+    let jsoned asts       = map (l_to_s l_op l_dl l_cl) asts |> l_to_s l_op l_dl l_cl in
+    let b64 bin   = strung ^ (Bytes.to_string bin |> Base64.encode_exn) ^ strung      in
+    let json_asts = map2 (fun b -> {b with concat = jsoned b.asts}) with_asts         in
+    let paired    = map2 (fun b -> (b64 b.auuid) ^ kv_pair ^ b.concat) json_asts      in
     map (l_to_s j_op l_dl j_cl) paired
   in
 
   (* Finally, sandwich ASTs into the IR amongst the other auxdata *)
-  let encoded   =
+  let encoded =
     let orig_auxes  = map (fun (m : Module.t) -> m.aux_data) modules            in
+    (* TODO : This is ascii text and it takes up most of the gtirb filesize --> compress *)
     let ast_aux j   = ({type_name = ast; data = Bytes.of_string j} : AuxData.t) in
     let new_auxes   = map ast_aux serialisable |> map (fun a -> (ast, a))       in
     let aux_joins   = combine orig_auxes new_auxes                              in
     let full_auxes  = map (fun ((l : (string * AuxData.t option) list), (m, b))
-        -> (m, Option.some b) :: l) aux_joins     in
-    let mod_joins   = combine modules full_auxes  in
-    let mod_fixed   = map (fun ((m : Module.t), a)
-        -> {m with aux_data = a}) mod_joins       in
-    let out_gtirb = {ir with modules = mod_fixed} in
-    let serial    = IR.to_proto out_gtirb         in
-  Runtime'.Writer.contents serial
+        -> (m, Option.some b) :: l) aux_joins   in
+    let mod_joins = combine modules full_auxes  in
+    let mod_fixed = map (fun ((m : Module.t), a)
+        -> {m with aux_data = a}) mod_joins in
+    (* Save some space by deleting all sections except .text *)
+    let text_only = map (fun (m : Module.t)
+        -> {m with sections = filter is_text m.sections}) mod_fixed in
+    let new_ir      = {ir with modules = text_only}                 in
+    (* Save some more space by deleting IR auxdata, only contains ddisasm version anyways *)
+    let out_gtirb   = {new_ir with aux_data = []} in
+    let serial      = IR.to_proto out_gtirb       in
+    Runtime'.Writer.contents serial
   in
 
   (* And reserialise to disk *)
