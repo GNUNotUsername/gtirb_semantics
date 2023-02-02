@@ -1,7 +1,7 @@
 #!/bin/bash
 
-echo This is going to take absolutely ages
-sleep 3
+echo This may take several hours. Press enter to continue or ctrl-c to abort.
+read
 wget -O key https://download.grammatech.com/gtirb/files/apt-repo/conf/apt.gpg.key
 sudo apt-key add key
 rm key
