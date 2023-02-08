@@ -9,7 +9,10 @@ open LibASL
 open Bytes
 open List
 
-(* These could all definitely be simplified *)
+(* TYPES  *)
+
+(* These could probably be simplified *)
+(* OCaml representation of mid-evaluation code block  *)
 type rectified_block = {
   ruuid     : bytes;
   contents  : bytes;
@@ -19,28 +22,35 @@ type rectified_block = {
   size      : int;
 }
 
+(* ASLi semantic info for a block *)
 type ast_block = {
   auuid   : bytes;
   asts    : string list list;
   concat  : string;
 }
 
+(* Wrapper for polymorphic code/data/not-set block pre-rectification  *)
 type content_block = {
   block   : Block.t;
   raw     : bytes;
   address : int; 
 }
 
+(* Individual cell in index map generated from collapsing Huffman tree  *)
+(* Used in compressing ASLi semantic info outputs                       *)
 type translation_block = {
   base  : char;
   rep   : string;
   len   : int;
 }
 
+(* Leaf/Node in Huffman tree generated during ASLi semantic info compression *)
 type freq_pq =
   | Leaf    of int * char
   | Branch  of int * freq_pq * freq_pq
 
+(* CONSTANTS  *)
+(* Argv       *)
 let binary_ind    = 1
 let prelude_ind   = 2
 let mra_ind       = 3
@@ -48,8 +58,11 @@ let asli_ind      = 4
 let out_ind       = 5
 let opcode_length = 4
 
+(* Protobuf spelunking  *)
 let ast           = "ast"
 let text          = ".text"
+
+(* JSON parsing/building  *)
 let hex           = "0x"
 let l_op          = "["
 let l_dl          = ","
@@ -58,6 +71,9 @@ let strung        = "\""
 let alt_str       = "'"
 let kv_pair       = ":"
 let newline       = "\n"
+
+(* ASL Spec pathing *)
+(* Hardcoding this as it's unlikely to change for a while and adding 200000 cmdline args is pain  *)
 let arch          = "regs-arch-arch_instrs-arch_decode"
 let support       = "aes-barriers-debug-feature-hints-interrupts-memory-stubs-fetchdecode"
 let test          = "override-test"
@@ -66,6 +82,7 @@ let spec_d        = '-'
 let path_d        = "/"
 let asl           = ".asl"
 
+(* Compression and bit twiddling  *)
 let asli_base     = Char.code '"'
 let asli_range    = Char.code 'z' - asli_base + 1
 let padding       = '0'
@@ -77,6 +94,7 @@ let left_i        = 0
 let rol           = 2
 let bsize         = 8
 
+(*  MAIN  *)
 let () = 
   (* Convenience *)
   let map2 f l = map (map f) l                      in
@@ -97,7 +115,7 @@ let () =
   let b_tl op n   = Bytes.sub op n (len op - n) in
   let b_hd op n   = Bytes.sub op 0 n            in
 
-  (* Main *)
+  (* BEGINNING *)
   (* Read bytes from the file, skip first 8 *) 
   let bytes = 
     let ic  = open_in Sys.argv.(binary_ind)     in 
@@ -131,7 +149,7 @@ let () =
       |> map flatten
   in
 
-  (* Resolve polymorphic block variants to isolate info we actually care about *)
+  (* Resolve polymorphic block variants to isolate only useful info *)
   let codes_only  = 
     let rectify   = function
       | `Code (c : CodeBlock.t) -> rblock c.size c.uuid
@@ -190,7 +208,7 @@ let () =
     concat (prelude :: mra)
   in
 
-  (* Evaluate each opcode one by one with a new environment for each *)
+  (* Evaluate each instruction one by one with a new environment for each *)
   let to_asli op addr =
     let p_raw a = 
       let rec fix_json s =
@@ -214,10 +232,12 @@ let () =
       in 
       let s = Utils.to_string (Asl_parser_pp.pp_raw_stmt a) |> String.trim |> fix_json in
       (
-        (*print_endline s;*)
+        (* Display Asli outputs as they arrive *)
+        print_endline s;
         s
       )
     in
+    (* Set up and tear down eval environment for every single instruction *)
     let address = Some (string_of_int addr)                                     in
     let env     = Eval.build_evaluation_environment envinfo                     in
     let str     = hex ^ Hexstring.encode op                                     in 
@@ -240,7 +260,7 @@ let () =
     }) blk_orded
   in
 
-  (* Now massage asli outputs into a format which can
+  (* Massage asli outputs into a format which can
      be serialised and then deserialised by other tools *)
   let serialisable =
     let l_to_s op d cl l  = op ^ (String.concat d l) ^ cl                             in
@@ -251,7 +271,7 @@ let () =
     map (String.concat l_dl) paired
   in
 
-  (* Finally, sandwich ASTs into the IR amongst the other auxdata *)
+  (* Sandwich ASTs into the IR amongst the other auxdata *)
   let encoded =
     let pad_8 s =
       let plen = (String.length s) mod 8 in
@@ -259,13 +279,13 @@ let () =
       then ""
       else (String.make (bsize - plen) padding)
     in
-    let c_to_b c      = Bytes.make 1 c                                                in
-    let i_to_b i      = Char.chr i |> c_to_b                                          in
-    let orig_auxes    = map (fun (m : Module.t) -> m.aux_data) modules                in
+    let c_to_b c      = Bytes.make 1 c                                  in
+    let i_to_b i      = Char.chr i |> c_to_b                            in
+    let orig_auxes    = map (fun (m : Module.t) -> m.aux_data) modules  in
     let compress ast  =
       print_endline ast;
-      (* Do some Huffman compression on asli output *)
-      (* Bless me Father for I have sinned...       *)
+      (* Do some Huffman compression on asli output because it's huge *)
+      (* Bless me Father for I have sinned...                         *)
       let base = Array.make asli_range 0 in
       let rec freqs s a =
         (* Determine frequencies of each character  *)
@@ -292,7 +312,7 @@ let () =
       in
       (* Order the leaves by frequency *)
       let pq_cmp a b = freq a - freq b                                                          in
-      let initial  = add_names ast_freqs 0 |> filter (fun b -> freq b > 0) |> fast_sort pq_cmp  in (*print_endline "Frequencies" ; iter (fun a -> (match a with | Leaf(f, n) -> Printf.printf "%c %d\n" n f | Branch(_, _, _) -> print_endline "")) initial;*)
+      let initial  = add_names ast_freqs 0 |> filter (fun b -> freq b > 0) |> fast_sort pq_cmp  in
       let rec build_huff pq =
         (* Build the frequency tree from the ordered queue *)
         match pq with
@@ -307,21 +327,14 @@ let () =
                      )
       in
       let huff_tree = build_huff initial |> hd in
-      (* TEMP
-      let rec repr t =
-        match t with
-        | Branch(_, l, r) -> "<" ^ repr l ^ repr r ^ ">"
-        | Leaf(_, c)      -> String.make 1 c
-      in print_endline (repr huff_tree);*)
       let rec collapse tree p =
         (* Collapse the tree into something more easily indexable *)
         match tree with
         | Branch(_, l, r) -> (collapse l (p ^ left)) @ (collapse r (p ^ right))
         | Leaf(_, c)      -> [{base = c; rep = p; len = String.length p}]
       in
-      (*print_endline "Collapsed tree";*)
       let huff_cmp a b = (Char.code a.base) - (Char.code b.base) in
-      let binaried = collapse huff_tree "" |> fast_sort huff_cmp in(* iter (fun b -> Printf.printf "%c %s\n" b.base b.rep) binaried;*)
+      let binaried = collapse huff_tree "" |> fast_sort huff_cmp in
       let rec fill_map bins m =
         (* Expand the collapsed tree into an index map *)
         let rec fill_empties l s =
@@ -332,6 +345,7 @@ let () =
         match bins with
         | []      -> m
         | h :: t  ->
+          (* Insert empty cells where necessary to make indexing line up right  *)
           let mlen    = length m                      in
           let bin_ind = Char.code h.base - asli_base  in
           let padded  = if mlen < bin_ind
@@ -341,17 +355,13 @@ let () =
           fill_map t (padded @ [h])
       in
       let t_map = fill_map binaried [] in
-      (*print_endline "tmap";
-      iter (fun f -> Printf.printf "%c %s\n" f.base f.rep) t_map;*)
       let rec binarify compressed remaining =
-        (* Using a binary string because byte manipulation in ocaml is pain *)
+        (* Using a binary string as an intermediate step because bit twiddling in ocaml is misery *)
         if String.length remaining == 0
         then compressed ^ (pad_8 compressed)
         else (
           let key = Char.code remaining.[0] - asli_base in
-          (*Printf.printf "Trying %c %d\n" remaining.[0] key;*)
           let cell = nth t_map key                      in
-          (*print_endline "Worked";*)
           let add = cell.rep                            in
           let n_comp = compressed ^ add                 in
           let n_remaining = stl remaining               in
@@ -360,12 +370,14 @@ let () =
       in
       let binarified = binarify "" ast in
       let rec byte_chunks s =
+        (* Chop up intermediate binary string ino chunks of 8 for translation into real bytes *)
         let slen = String.length s in
         if slen = 0
         then []
         else String.sub s 0 bsize :: byte_chunks (String.sub s bsize (slen - bsize))
       in
       let rec byte_join l =
+        (* Cat together a byte array into a huge byte string  *)
         match l with
         | []      -> empty
         | h :: t  -> Bytes.cat h (byte_join t)
@@ -385,17 +397,18 @@ let () =
       let compressed = bs_to_b binarified in
       let rec serialise_map m =
         (* Translate translation blocks into a standard header format *)
+        (* ascii_char :: n_bits :: compressed_repr *)
         let bin_rep c = ((pad_8 c.rep) ^ c.rep) |> bs_to_b                                      in
         let serialise_cell c = Bytes.cat (Bytes.cat (c_to_b c.base) (i_to_b c.len)) (bin_rep c) in
-        (*Bytes.cat (i_to_b c.len) (bin_rep c) |> Bytes.cat (c_to_b c.base)  in*)
         match m with
         | []      -> empty
-        | h :: t  -> (*(let o = *)Bytes.cat (serialise_cell h) (serialise_map t)(* in Printf.printf "%c %s\n" h.base (String.sub (Hexstring.encode o) 0 8); o)*)
+        | h :: t  -> Bytes.cat (serialise_cell h) (serialise_map t)
       in
       let prefix = Bytes.cat (i_to_b (length binaried)) (serialise_map binaried) in
       Bytes.cat prefix compressed
-      (* End result is the translation header :: \0 :: compressed text *)
+      (* End result is (no_map_entries :: translation_map_blocks :: compressed_text) *)
     in
+    (* Turn the translation map + compressed semantics into auxdata and slide it in with the rest *)
     let ast_aux j   = ({type_name = ast; data = compress j} : AuxData.t)  in
     let new_auxes   = map ast_aux serialisable |> map (fun a -> (ast, a)) in
     let aux_joins   = combine orig_auxes new_auxes                        in
@@ -404,7 +417,7 @@ let () =
     let mod_joins = combine modules full_auxes  in
     let mod_fixed = map (fun ((m : Module.t), a)
         -> {m with aux_data = a}) mod_joins in
-    (* Save some space by deleting all sections except .text *)
+    (* Save some space by deleting all sections except .text, not necessary*)
     let text_only = map (fun (m : Module.t)
         -> {m with sections = filter is_text m.sections}) mod_fixed in
     let new_ir      = {ir with modules = text_only}                 in
