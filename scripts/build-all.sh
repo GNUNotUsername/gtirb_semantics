@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo This may take several hours. Press enter to continue or ctrl-c to abort.
+echo This must be run as root and may take several hours. Press enter to continue or ctrl-c to abort.
 read
 wget -O key https://download.grammatech.com/gtirb/files/apt-repo/conf/apt.gpg.key
 sudo apt-key add key
