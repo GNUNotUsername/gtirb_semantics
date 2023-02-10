@@ -274,7 +274,7 @@ let () =
   (* Sandwich ASTs into the IR amongst the other auxdata *)
   let encoded =
     let pad_8 s =
-      let plen = (String.length s) mod 8 in
+      let plen = (String.length s) mod bsize in
       if plen = 0
       then ""
       else (String.make (bsize - plen) padding)
@@ -283,7 +283,6 @@ let () =
     let i_to_b i      = Char.chr i |> c_to_b                            in
     let orig_auxes    = map (fun (m : Module.t) -> m.aux_data) modules  in
     let compress ast  =
-      print_endline ast;
       (* Do some Huffman compression on asli output because it's huge *)
       (* Bless me Father for I have sinned...                         *)
       let base = Array.make asli_range 0 in
@@ -413,12 +412,12 @@ let () =
     let new_auxes   = map ast_aux serialisable |> map (fun a -> (ast, a)) in
     let aux_joins   = combine orig_auxes new_auxes                        in
     let full_auxes  = map (fun ((l : (string * AuxData.t option) list), (m, b))
-        -> (m, Option.some b) :: l) aux_joins   in
-    let mod_joins = combine modules full_auxes  in
-    let mod_fixed = map (fun ((m : Module.t), a)
+        -> (m, Option.some b) :: l) aux_joins     in
+    let mod_joins   = combine modules full_auxes  in
+    let mod_fixed   = map (fun ((m : Module.t), a)
         -> {m with aux_data = a}) mod_joins in
-    (* Save some space by deleting all sections except .text, not necessary*)
-    let text_only = map (fun (m : Module.t)
+    (* Save some space by deleting all sections except .text, not necessary *)
+    let text_only   = map (fun (m : Module.t)
         -> {m with sections = filter is_text m.sections}) mod_fixed in
     let new_ir      = {ir with modules = text_only}                 in
     (* Save some more space by deleting IR auxdata, only contains ddisasm version anyways *)
@@ -427,7 +426,7 @@ let () =
     Runtime'.Writer.contents serial
   in
 
-  (* And reserialise to disk *)
+  (* Reserialise to disk *)
   let out = open_out_bin Sys.argv.(out_ind) in
   (
     Printf.fprintf out "%s" encoded;
